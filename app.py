@@ -6,6 +6,9 @@ import numpy as np
 from PIL import Image
 import io
 
+# Fix tesseract path for Railway/Docker environment
+pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*"}})  # Enable CORS for all origins
 
@@ -16,7 +19,11 @@ def analyze_image():
 
     file = request.files["file"]
     image_stream = io.BytesIO(file.read())
-    image = Image.open(image_stream).convert("RGB")
+    try:
+        image = Image.open(image_stream).convert("RGB")
+    except Exception as e:
+        return jsonify({"error": f"Invalid image file: {str(e)}"}), 400
+
     open_cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
     # Resize for consistent processing
@@ -61,4 +68,4 @@ def detect_g_center_y(image):
     return None
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000)
