@@ -8,21 +8,22 @@ app = Flask(__name__)
 CORS(app)
 
 @app.route("/analyze", methods=["POST"])
-def analyze():
-    file = request.files.get("file")
-    if not file:
-        return jsonify({"error": "No file uploaded"}), 400
+def analyze_image():
+    if "file" not in request.files:
+        return jsonify({"result": "No file uploaded"}), 400
 
-    file_bytes = np.frombuffer(file.read(), np.uint8)
-    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    file = request.files["file"]
+    npimg = np.frombuffer(file.read(), np.uint8)
+    img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
-    height, width = img.shape[:2]
-    center_pixel = img[height // 2, width // 2]
-    is_split = center_pixel[1] > 100
+    # Placeholder logic: check if image has any black pixels
+    if np.mean(img) < 100:
+        result = "split"
+    else:
+        result = "not split"
 
-    result = "You split the G!" if is_split else "Not quite split."
     return jsonify({"result": result})
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True, host="0.0.0.0", port=port)
