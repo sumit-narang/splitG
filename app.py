@@ -1,12 +1,3 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-import cv2
-import numpy as np
-import os
-
-app = Flask(__name__)
-CORS(app)
-
 @app.route("/analyze", methods=["POST"])
 def analyze_image():
     if "file" not in request.files:
@@ -16,14 +7,18 @@ def analyze_image():
     npimg = np.frombuffer(file.read(), np.uint8)
     img = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
 
-    # Placeholder logic: check if image has any black pixels
-    if np.mean(img) < 100:
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 150)
+
+    # Count edge pixels in region where the "G" usually is
+    height, width = edges.shape
+    g_region = edges[int(height*0.3):int(height*0.7), int(width*0.3):int(width*0.7)]
+    edge_count = np.sum(g_region > 0)
+
+    # Threshold chosen heuristically; you can tune this
+    if edge_count < 1000:
         result = "split"
     else:
         result = "not split"
 
     return jsonify({"result": result})
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(debug=True, host="0.0.0.0", port=port)
