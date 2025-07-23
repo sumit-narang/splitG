@@ -7,7 +7,7 @@ from PIL import Image
 import io
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*"}})  # Enable CORS for all origins
 
 @app.route("/analyze", methods=["POST"])
 def analyze_image():
@@ -19,6 +19,7 @@ def analyze_image():
     image = Image.open(image_stream).convert("RGB")
     open_cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
 
+    # Resize for consistent processing
     open_cv_image = cv2.resize(open_cv_image, (600, int(open_cv_image.shape[0] * 600 / open_cv_image.shape[1])))
 
     foam_line_y = detect_foam_line(open_cv_image)
