@@ -1,71 +1,45 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cv2
 import pytesseract
-import numpy as np
 from PIL import Image
+import numpy as np
+import cv2
 import io
 
-# Fix tesseract path for Railway/Docker environment
+# Set Tesseract path (for Docker)
 pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})  # Enable CORS for all origins
+CORS(app)
 
 @app.route("/analyze", methods=["POST"])
-def analyze_image():
+def analyze():
     if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+        return jsonify({"error": "No file part"}), 400
 
     file = request.files["file"]
-    image_stream = io.BytesIO(file.read())
+    if file.filename == "":
+        return jsonify({"error": "No selected file"}), 400
+
     try:
-        image = Image.open(image_stream).convert("RGB")
+        img = Image.open(io.BytesIO(file.read())).convert("RGB")
+        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        img_cv = cv2.resize(img_cv, (600, int(img_cv.shape[0] * 600 / img_cv.shape[1])))
+
+        # Dummy logic for now
+        text = pytesseract.image_to_string(img_cv).lower()
+        g_found = "g" in text
+
+        return jsonify({
+            "result": "you split the G" if g_found else "you missed it"
+        })
+
     except Exception as e:
-        return jsonify({"error": f"Invalid image file: {str(e)}"}), 400
+        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
 
-    open_cv_image = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-
-    # Resize for consistent processing
-    open_cv_image = cv2.resize(open_cv_image, (600, int(open_cv_image.shape[0] * 600 / open_cv_image.shape[1])))
-
-    foam_line_y = detect_foam_line(open_cv_image)
-    g_center_y = detect_g_center_y(open_cv_image)
-
-    if g_center_y is None or foam_line_y is None:
-        result = "Could not detect the G or foam line"
-    elif abs(foam_line_y - g_center_y) < 20:
-        result = "you split the G"
-    else:
-        result = "you missed it"
-
-    return jsonify({"result": result})
-
-def detect_foam_line(image):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 30, 100)
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=100, maxLineGap=10)
-
-    if lines is None:
-        return None
-
-    horizontal_lines = [line for line in lines if abs(line[0][1] - line[0][3]) < 10]
-    if not horizontal_lines:
-        return None
-
-    y_coords = [line[0][1] for line in horizontal_lines]
-    return int(np.median(y_coords))
-
-def detect_g_center_y(image):
-    data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-
-    for i, word in enumerate(data["text"]):
-        if word.lower() == "g":
-            top = data["top"][i]
-            height = data["height"][i]
-            return top + height // 2
-
-    return None
+@app.route("/", methods=["GET"])
+def health():
+    return "Backend is up!"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
