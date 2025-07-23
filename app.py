@@ -1,45 +1,31 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import pytesseract
-from PIL import Image
-import numpy as np
 import cv2
-import io
-
-# Set Tesseract path (for Docker)
-pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
+import numpy as np
+import os
 
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Allow cross-origin requests from React frontend
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
-    if "file" not in request.files:
-        return jsonify({"error": "No file part"}), 400
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
 
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "No selected file"}), 400
+    # Read image with OpenCV
+    file_bytes = np.frombuffer(file.read(), np.uint8)
+    img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-    try:
-        img = Image.open(io.BytesIO(file.read())).convert("RGB")
-        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-        img_cv = cv2.resize(img_cv, (600, int(img_cv.shape[0] * 600 / img_cv.shape[1])))
+    # Dummy logic to simulate "split the G" detection
+    height, width = img.shape[:2]
+    center_pixel = img[height // 2, width // 2]
+    is_split = center_pixel[1] > 100  # Example heuristic: check green value
 
-        # Dummy logic for now
-        text = pytesseract.image_to_string(img_cv).lower()
-        g_found = "g" in text
+    result = "You split the G!" if is_split else "Not quite split."
 
-        return jsonify({
-            "result": "you split the G" if g_found else "you missed it"
-        })
-
-    except Exception as e:
-        return jsonify({"error": f"Processing failed: {str(e)}"}), 500
-
-@app.route("/", methods=["GET"])
-def health():
-    return "Backend is up!"
+    return jsonify({"result": result})
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))  # Fix for Railway's $PORT
+    app.run(host="0.0.0.0", port=port)
