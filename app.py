@@ -1,25 +1,26 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import cv2
 import numpy as np
 import os
-from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app)  # Allow cross-origin from React frontend
+CORS(app)
 
-# Load template G image
+# Load the G template once
 template_path = os.path.join(os.path.dirname(__file__), 'template_g.png')
 template_g = cv2.imread(template_path, 0)  # Grayscale
 
 def is_g_split(cropped_g):
+    """
+    Analyzes the cropped G image to determine if it's horizontally split.
+    """
     _, thresh = cv2.threshold(cropped_g, 127, 255, cv2.THRESH_BINARY_INV)
     horizontal_proj = np.sum(thresh, axis=1)
     normalized = horizontal_proj / np.max(horizontal_proj)
     mid = len(normalized) // 2
-    region = normalized[mid - mid//10 : mid + mid//10]
-    if np.min(region) < 0.1:
-        return True
-    return False
+    region = normalized[mid - mid // 10: mid + mid // 10]
+    return np.min(region) < 0.1  # Adjust threshold if needed
 
 @app.route('/check_g_split', methods=['POST'])
 def check_g_split():
@@ -46,4 +47,5 @@ def check_g_split():
     return jsonify({'g_split': split})
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
