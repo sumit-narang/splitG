@@ -1,78 +1,65 @@
 from flask import Flask, request, jsonify
-from flask_cors import CORS
 import cv2
 import numpy as np
 import pytesseract
-import os
+from PIL import Image
+import io
 
 app = Flask(__name__)
-CORS(app)
 
-# Load the G template (if exists)
-TEMPLATE_PATH = "g_template.png"
-g_template = cv2.imread(TEMPLATE_PATH, 0) if os.path.exists(TEMPLATE_PATH) else None
+def analyze_image(image_bytes):
+    # Load image from bytes
+    img = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+    img_np = np.array(img)
 
-def find_g_with_template(image_gray):
-    if g_template is None:
-        return None
+    # Convert RGB to BGR (OpenCV uses BGR)
+    img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
-    res = cv2.matchTemplate(image_gray, g_template, cv2.TM_CCOEFF_NORMED)
-    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+    # OCR config to get text with boxes
+    data = pytesseract.image_to_data(img_cv, output_type=pytesseract.Output.DICT)
 
-    if max_val < 0.6:
-        return None  # Not confident
+    # Find the letter G in the text with bounding boxes
+    # We'll check if G is split horizontally (meaning gap inside letter G)
 
-    h, w = g_template.shape
-    top_left = max_loc
-    return image_gray[top_left[1]:top_left[1]+h, top_left[0]:top_left[0]+w]
+    # Extract all bounding boxes of letter 'G' or 'g'
+    g_boxes = []
+    for i, text in enumerate(data['text']):
+        if text.strip().lower() == 'g':
+            x, y, w, h = (data['left'][i], data['top'][i], data['width'][i], data['height'][i])
+            g_boxes.append((x, y, w, h))
 
-def check_split(roi):
-    h, w = roi.shape
-    mid_y = h // 2
-    horizontal_band = roi[mid_y-5:mid_y+5, :]
-    _, binary = cv2.threshold(horizontal_band, 200, 255, cv2.THRESH_BINARY)
-    white_ratio = np.sum(binary == 255) / binary.size
-    return white_ratio > 0.2
+    if not g_boxes:
+        return "Could not find letter G in the image."
 
-def fallback_ocr_check(image):
-    text_data = pytesseract.image_to_data(image, output_type=pytesseract.Output.DICT)
-    n_boxes = len(text_data['text'])
+    # For each G found, analyze its image part for horizontal split (gap)
+    for (x, y, w, h) in g_boxes:
+        roi = img_cv[y:y+h, x:x+w]
 
-    for i in range(n_boxes):
-        if text_data['text'][i].strip().upper() == 'G':
-            (x, y, w, h) = (text_data['left'][i], text_data['top'][i],
-                            text_data['width'][i], text_data['height'][i])
-            roi = image[y:y+h, x:x+w]
-            if check_split(cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)):
-                return True
-    return False
+        # Convert ROI to grayscale and threshold
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
+
+        # Sum pixels horizontally to detect horizontal gaps
+        horizontal_sum = np.sum(thresh, axis=1) / 255  # counts black pixels per row
+
+        # Look for rows with very low black pixels (gap rows)
+        gap_rows = np.where(horizontal_sum < (w * 0.1))[0]  # less than 10% black pixels
+
+        if len(gap_rows) > 3:  # arbitrary threshold of gap lines
+            return "You Split the G!"
+
+    return "Try Again!"
 
 @app.route("/analyze", methods=["POST"])
 def analyze():
     if 'file' not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+        return jsonify({"result": "No file uploaded"}), 400
 
     file = request.files['file']
-    file_bytes = np.frombuffer(file.read(), np.uint8)
-    image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+    img_bytes = file.read()
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    result = analyze_image(img_bytes)
+    return jsonify({"result": result})
 
-    result = "Try Again!"
-    method = ""
-
-    g_roi = find_g_with_template(gray)
-    if g_roi is not None and check_split(g_roi):
-        result = "Split the G"
-        method = "Template"
-    elif fallback_ocr_check(image):
-        result = "Split the G"
-        method = "OCR fallback"
-    else:
-        method = "OCR fallback or Template failed"
-
-    return jsonify({"result": result, "method": method})
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
